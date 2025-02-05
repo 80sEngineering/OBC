@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Raspberry Pi Pico W</title>
+        {{render_template("FOTA/ap_templates/styles.html")}}
+    </head>
+    <body>
+        <div class="page">
+            <h1>Setup</h1>
+            <p>You are connected to the Raspberry Pi Pico W setup page.</p>
+            <p>Let&apos;s configure the wifi connection:</p>
+            <form class="pure-form pure-form-stacked" action="/configure" onsubmit="return validateForm(this);" method="POST" autocomplete="off" autocapitalize="none">
+                <fieldset>
+                    <legend>WiFi</legend>
+                    <p>You&apos;ll need your network name or SSID and password.</p>
+                    <p><b>The password will be case sensitive, so be sure to enter it correctly.</b></p>
+                    <label for="ssid">SSID:</label>
+                    <select id="ssidselect" onchange="ssidChanged()">
+                        {{"" if len(wifis) == 0 else "".join(["""<option value="{0}">{0}</option>""".format(w[0]) for w in wifis])}}                        
+                        <option value="other">Other...</option>
+                    </select>
+                    <input type="text" id="ssid" name="ssid" placeholder="WiFi SSID" value="{{"" if len(wifis) == 0 else wifis[0][0]}}" hidden required>
+                    <span class="pure-form-message">This is a required field.</span><br/>
+                    <label for="password">Password:</label>
+                    <input type="text" id="password" name="password" placeholder="WiFi Password" required>
+                    <span class="pure-form-message">This is a required field.</span><br/>
+                    <button type="submit" class="pure-button pure-button-primary">Save Settings</button>
+                   </fieldset>
+              </form>
+           </div>
+    </body>
+     <script>
+            function ssidChanged() {
+                const selectedSSID = document.getElementById('ssidselect').value;
+                const ssidElem = document.getElementById('ssid');
+                if (selectedSSID === 'other') {
+                    ssidElem.value = '';
+                    ssidElem.hidden = false;
+                } else {
+                    ssidElem.hidden = true;                    
+                    ssidElem.value = selectedSSID;
+                }
+            }
+                        
+            function validateForm(form) {
+                // The ssid field must contain something.
+                if (form.ssid.value.trim() === '') {
+                    form.ssid.focus();
+                    return false;
+                }
+                
+                // The password field must contain something.
+                if (form.password.value.trim() === '') {
+                    form.password.focus();
+                    return false;
+                }
+                
+                // Form has validated OK.
+                return true;
+            }
+        </script>
+</html>
