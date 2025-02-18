@@ -22,7 +22,6 @@ async def _handler(socket, ip_address):
 
 def run_catchall(ip_address, port=53):
   logging.info("> starting catch all dns server on port {}".format(port))
-
   _socket = usocket.socket(usocket.AF_INET, usocket.SOCK_DGRAM)
   _socket.setblocking(False)
   _socket.setsockopt(usocket.SOL_SOCKET, usocket.SO_REUSEADDR, 1)

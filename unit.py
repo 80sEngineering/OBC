@@ -8,6 +8,7 @@ class Unit:
         self.pressure_acronym = None
         self.temperature_acronym = None
         self.altitude_acronym = None
+        self.volume_acronym = None
         self.update()
         
     def update(self):
@@ -16,6 +17,7 @@ class Unit:
         self.set_speed_index()
         self.set_pressure_acronym()
         self.set_temperature_acronym()
+        self.set_volume_acronym()
         self.set_altitude_acronym()
         
     def set_speed_acronym(self):
@@ -51,4 +53,10 @@ class Unit:
             self.altitude_acronym = 'M'
         elif self.system == 'IMPERI.':
             self.altitude_acronym = 'FT'
+        
+    def set_volume_acronym(self):
+        if self.system == "METRIC":
+            self.volume_acronym = 'L'
+        elif self.system == "IMPERIAL":
+            self.volume_acronym = "GAL"
             

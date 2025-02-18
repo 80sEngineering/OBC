@@ -9,7 +9,6 @@ from math import floor, modf, radians , sin , cos , acos
 from machine import Pin
 from memory import access_setting
 import utime
-import logging
 
 class GPS_handler:
     def __init__(self,uart):
@@ -39,8 +38,7 @@ class GPS_handler:
         odometer_value = access_setting('odometer')
         if self.previous_place['time'] and self.parsed.speed[2] > 4:
             odometer_value += (speedms * ((self.parsed.fix_time - self.previous_place['time'])/1000))/1000
-            data_to_write = {'odometer':odometer_value}
-            access_setting(None, data_to_write)
+            access_setting('odometer', odometer_value)
         self.previous_place['time'] = self.parsed.fix_time
                 
     def has_fix(self):
@@ -88,11 +86,6 @@ class MicropyGPS(object):
         self.crc_fails = 0
         self.clean_sentences = 0
         self.parsed_sentences = 0
-
-        #####################
-        # Logging Related
-        self.log_handle = None
-        self.log_en = False
 
         #####################
         # Data From Sentences
@@ -152,47 +145,6 @@ class MicropyGPS(object):
             return [self._longitude[0], int(minute_parts[1]), seconds, self._longitude[2]]
         else:
             return self._longitude
-
-    ########################################
-    # Logging Related Functions
-    ########################################
-    def start_logging(self, target_file, mode="append"):
-        """
-        Create GPS data log object
-        """
-        # Set Write Mode Overwrite or Append
-        mode_code = 'w' if mode == 'new' else 'a'
-
-        try:
-            self.log_handle = open(target_file, mode_code)
-        except AttributeError:
-            logging.error(f"> Invalid FileName")
-            return False
-
-        self.log_en = True
-        return True
-
-    def stop_logging(self):
-        """
-        Closes the log file handler and disables further logging
-        """
-        try:
-            self.log_handle.close()
-        except AttributeError:
-            logging.error(f"> Invalid Handle")
-            return False
-
-        self.log_en = False
-        return True
-
-    def write_log(self, log_string):
-        """Attempts to write the last valid NMEA sentence character to the active file handler
-        """
-        try:
-            self.log_handle.write(log_string)
-        except TypeError:
-            return False
-        return True
 
     ########################################
     # Sentence Parsers
@@ -592,10 +544,6 @@ class MicropyGPS(object):
 
         if 10 <= ascii_char <= 126:
             self.char_count += 1
-
-            # Write Character to log file if enabled
-            if self.log_en:
-                self.write_log(new_char)
 
             # Check if a new string is starting ($)
             if new_char == '$':

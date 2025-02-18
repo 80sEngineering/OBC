@@ -22,15 +22,19 @@ class Dictionnary:
                                'LIMIT' : 'LIMIT',
                                'KMH' : 'KMH',
                                'DIST' : 'DIST',
+                               'RANGE' : 'RANGE',
+                               'FUEL' : 'FUEL',
                                'ODO' : 'ODO',
                                'TEMP' : 'TEMP',
                                'MAX' : 'MAX',
                                'VOLT' : 'VOLT',
                                'OIL' : 'OIL',
+                               'OUTEMP':'OUTEMP',
                                'ALT' : 'ALT',
                                'HDG' : 'HDG',
                                'G SENS' : 'G SENS',
-                               'SET' : 'SET'}
+                               'SET' : 'SET',
+                               'LIGHTS' : 'LIGHTS'}
             
         elif self.language == 'FR':
             self.words =  {
@@ -49,15 +53,19 @@ class Dictionnary:
                                'LIMIT' : 'LIMITE',
                                'KMH' : 'KMH',
                                'DIST' : 'DIST',
+                               'RANGE': 'AUTONO.',
+                               'FUEL': 'CARBUR.',
                                'ODO' : 'ODO',
                                'TEMP' : 'TEMP',
                                'MAX' : 'MAX',
                                'VOLT' : 'VOLT',
                                'OIL' : 'HUILE',
+                               'OUTEMP': 'TMP.EXT.',
                                'ALT' : 'ALT',
                                'HDG' : 'CAP',
                                'G SENS' : 'G',
-                               'SET':'PARAM.'
+                               'SET':'PARAM.',
+                               'LIGHTS':'PHARES'
                                }
             
         elif self.language == 'DE':
@@ -77,15 +85,19 @@ class Dictionnary:
                                'LIMIT' : 'LIMIT',
                                'KMH' : 'KMH',
                                'DIST' : 'DIST',
+                               'RANGE' : 'REICHW.',
+                               'FUEL' : 'TANK',
                                'ODO' : 'KM',
                                'TEMP' : 'TEMP',
                                'MAX' : 'MAX',
                                'VOLT' : 'VOLT',
                                'OIL' : 'OL',
+                               'OUTEMP': 'A-TEMP',
                                'ALT' : 'HOHE',
                                'HDG' : 'KOMPAS',
                                'G SENS' : 'GKRAFT',
-                               'SET':'SET'
+                               'SET':'SET',
+                               'LIGHTS':'LICHT',
                 
                 }
             

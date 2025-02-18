@@ -99,3 +99,4 @@ class OTAUpdater:
         logging.debug(f'> Newer version available: {self.newer_version_available}')    
         return self.newer_version_available
     
+

@@ -2,11 +2,10 @@ import machine
 import time
 
 class MCP3208:
-    def __init__(self, spi, cs, ref_voltage=3.3):
+    def __init__(self, spi, cs):
         self.cs = cs
         self.cs.value(1) # ncs on
         self._spi = spi
-        self._ref_voltage = ref_voltage
     
     def read_value(self, pin):
         cmd = 128  # 1000 0000
@@ -24,6 +23,6 @@ class MCP3208:
     
     def read_voltage(self,pin):
         adc_value = self.read_value(pin)
-        voltage_value = 3.3 * adc_value / 4096
+        voltage_value = 5.2 * adc_value / 4096
         return voltage_value
         
