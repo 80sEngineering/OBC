@@ -194,7 +194,7 @@ class OBC:
 
     def check_for_last_use(self):
         if time.ticks_diff(time.ticks_ms(),self.last_use) > self.auto_off_delay:
-            logging.debug(f"> No activity for {auto_off_delay}ms")
+            logging.debug(f"> No activity for {self.auto_off_delay}ms")
             self.power_handler()
 
     def cabin_light_handler(self, pin = None):
@@ -835,7 +835,7 @@ class OBC:
                 liters_per_hour = (fuel_per_second_cc * 3600) / 1000
                 return liters_per_hour
             elif self.unit.system == "IMPERI.":
-                gallon_per_hour = 0,264172 * fuel_per_second * 3600
+                gallon_per_hour = 0,264172 * fuel_per_second_cc * 3600
                 return gallon_per_hour
         else:
             return 0
@@ -1241,7 +1241,7 @@ class OBC:
                 self.show('12AMPM')
             if self.digit_pressed in [-1,1]:
                 self.clock_format = 12 if self.clock_format == 24 else 24
-                access_setting('clock_format',clock_format)
+                access_setting('clock_format',self.clock_format)
                 self.digit_pressed = 0
 
     def set_unit(self):
@@ -1414,11 +1414,11 @@ class OBC:
             y_digit_mapping = [1, -1]
             if self.digit_pressed in x_digit_mapping:
                 if -10 <= g_error[0] + self.digit_pressed / 10 < 10:
-                     g_error[0] += int(self.digit_pressed / 100)
+                     g_error[0] += int(self.digit_pressed / 10)
                 access_setting('g_error',g_error)
             elif self.digit_pressed in y_digit_mapping:
                 if -10 < g_error[1] + self.digit_pressed < 10:
-                    g_error[1] += int(self.digit_pressed/10)
+                    g_error[1] += int(self.digit_pressed)
                 access_setting('g_error',g_error)
             self.digit_pressed = 0
 
