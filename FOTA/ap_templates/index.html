@@ -8,12 +8,11 @@
     <body>
         <div class="page">
             <h1>Setup</h1>
-            <p>You are connected to the Raspberry Pi Pico W setup page.</p>
-            <p>Let&apos;s configure the wifi connection:</p>
+            <p>You are connected to the OBC wifi setup page, where you can connect the device to internet, for it to download software updates.</p>
+            <p>Please type in your hotspot's SSID and password:</p>
             <form class="pure-form pure-form-stacked" action="/configure" onsubmit="return validateForm(this);" method="POST" autocomplete="off" autocapitalize="none">
                 <fieldset>
                     <legend>WiFi</legend>
-                    <p>You&apos;ll need your network name or SSID and password.</p>
                     <p><b>The password will be case sensitive, so be sure to enter it correctly.</b></p>
                     <label for="ssid">SSID:</label>
                     <select id="ssidselect" onchange="ssidChanged()">
