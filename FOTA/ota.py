@@ -37,45 +37,51 @@ class OTAUpdater:
             with open('version.json', 'w') as f:
                 json.dump({'version': self.current_version}, f)
             
+
     def download_update_and_reset(self):
-        """ Fetch the latest code from the repo if found, updates, and reset"""
+        """Fetch the latest code from the repo in chunks, update, and reset."""
         
-        # Fetch the latest code from the repo.
         index = 0
         for firmware_url in self.firmware_urls:
+            gc.collect()  # Free memory before request
             try:
-                gc.collect() #free some memory space
-                response = urequests.get(firmware_url)
+                response = urequests.get(firmware_url, stream=True)  # Enable streaming
             except OSError:
-                logging.error(f'> Memory allocation failed for {filename}')
-                response.status_code = 404
+                logging.error(f'> Memory allocation failed for {firmware_url}')
+                continue  # Skip to the next URL
+
             if response.status_code == 200:
                 filename = self.filenames[index]
-                logging.debug(f'> Fetched latest firmware code for {filename}, status: {response.status_code}')
+                logging.info(f'> Fetched latest firmware for {filename}, status: {response.status_code}')
                 
-                with open('latest_code.py', 'w') as f:
-                    try:
-                        gc.collect()
-                        f.write(response.text)
-                        writing_sucess = True
-                    except MemoryError:
-                        logging.error(f'> Memory allocation failed for {filename}')
-                        writing_sucess = False
-                 
-                if writing_sucess: 
-                    logging.debug("> Updating device... ")
-                    # Overwrite the old code.
-                    os.rename('latest_code.py', filename)  
+                try:
+                    with open('latest_code.py', 'w') as f:
+                        chunk_size = 1024  # Read in 1KB chunks
+                        while True:
+                            gc.collect()  # Free memory during download
+                            chunk = response.raw.read(chunk_size)
+                            if not chunk:
+                                break
+                            f.write(chunk)  # Write each chunk to file
+                    response.close()
+                    
+                    logging.debug("> Updating device...")
+                    os.rename('latest_code.py', filename)  # Replace old code
 
-            elif response.status_code == 404:
-                logging.error(f'> Firmware not found - {firmware_url}.')
+                except MemoryError:
+                    logging.error(f'> Memory allocation failed while writing {filename}')
+            
+            else:
+                logging.error(f'> Firmware not found - {firmware_url}')
+            
             index += 1
-            
-        # Restart the device to run the new code.
+            response.close()
+            gc.collect()  # Free memory after each file
+
         logging.debug('> Restarting device...')
-        machine.reset()  # Reset the device to run the new code.            
-            
-          
+        machine.reset()  # Reset to apply update         
+                
+              
     def check_for_updates(self):
         """ Check if updates are available."""
         
