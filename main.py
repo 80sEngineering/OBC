@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# 80s Engineering On-board Computer Firmware v1 - 27/02/2025
+# 80s Engineering On-board Computer Firmware v1 - 05/03/2025
 # Copyright (C) 2025 80s Engineering. All rights reserved.
 #
 # This firmware is proprietary. Users are permitted to modify it; however,
@@ -974,19 +974,21 @@ class OBC:
             value = round(value,1)
             if value%1!=0:
                 value_str = "{:>7}".format(value)
-            elif value < 100000: # Wonder if there is  any >1Mkm miled e30s out there but hey
+            else:
                 value_str = "{:>6}".format(value)
             self.show(str(value_str))
 
-
     def set_odometer(self, unit):
         odometer_value = int(access_setting('odometer'))
+        factor = 1
+        if self.unit.system == "IMPERI.":
+            factor = 1.60934
         if unit == 'k':
             digit_mapping = {100: 100000, 10: 10000, 1: 1000, -1: -1000, -10: -10000, -100: -100000}
         else:
             digit_mapping = {1000: 1000, 100: 100, 10: 10, 1: 1, -1: -1, -10: -10, -100: -100, -1000: -1000}
         if self.digit_pressed in digit_mapping:
-            odometer_value += digit_mapping.get(self.digit_pressed, 0)
+            odometer_value += factor * digit_mapping.get(self.digit_pressed, 0)
             if odometer_value < 0:
                 odometer_value = 0
             elif odometer_value > 999999:
@@ -995,32 +997,44 @@ class OBC:
             self.digit_pressed = 0
 
     def set_odometer_thousands(self):
-        odometer_value = int(access_setting('odometer'))
-        odometer_str = self.display.zeros_before_number(str(odometer_value))
-        thousands = odometer_str[-3:]
         now = time.ticks_ms()
+        odometer_value = int(access_setting('odometer'))
+        if self.unit.system == "IMPERI.":
+            odometer_value = int(0.621371*odometer_value )
+        odometer_str =  self.display.zeros_before_number(str(odometer_value))
         displayed_value = odometer_str
-        while self.displayed_function == set_odometer_thousands:
+        while self.displayed_function == self.set_odometer_thousands:
+            odometer_value = access_setting('odometer')
+            if self.unit.system == "IMPERI.":
+                odometer_value = int(0.621371*odometer_value)
+            odometer_str = self.display.zeros_before_number(str(odometer_value))
+            thousands = "   "+odometer_str[3:]
             self.show(displayed_value)
-            if time.ticks_diff(time.ticks_ms(),now) > 700:
+            if time.ticks_diff(time.ticks_ms(),now) > 300:
                 displayed_value = thousands if displayed_value == odometer_str else odometer_str
                 now = time.ticks_ms()
             self.set_odometer('k')
 
     def set_odometer_hundreds(self):
-        odometer_value = int(access_setting('odometer'))
-        odometer_str = self.display.zeros_before_number(str(odometer_value))
-        hundreds = odometer_str[:-3]
         now = time.ticks_ms()
+        odometer_value = int(access_setting('odometer'))
+        if self.unit.system == "IMPERI.":
+            odometer_value = 0.621371*odometer_value 
+        odometer_str =  self.display.zeros_before_number(str(odometer_value))
         displayed_value = odometer_str
-        while self.displayed_function == set_odometer_hundreds:
+        while self.displayed_function == self.set_odometer_hundreds:
+            odometer_value = access_setting('odometer')
+            if self.unit.system == "IMPERI.":
+                odometer_value = int(0.621371*odometer_value)
+            odometer_str = self.display.zeros_before_number(str(odometer_value))
+            hundreds = odometer_str[:3]
             self.show(displayed_value)
-            if time.ticks_diff(time.ticks_ms(),now) > 700:
+            if time.ticks_diff(time.ticks_ms(),now) > 300:
                 displayed_value = hundreds if displayed_value == odometer_str else odometer_str
                 now = time.ticks_ms()
             self.set_odometer('h')
-
-
+            
+            
     def timer_function(self):
         if self.show_function_name(self.button6) and not self.timer.is_displayed:
             self.show(self.words['TIMER'])
