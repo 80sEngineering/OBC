@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# 80s Engineering On-board Computer Firmware v1 - 05/03/2025
+# 80s Engineering On-board Computer Firmware v1 - 31/03/2025
 # Copyright (C) 2025 80s Engineering. All rights reserved.
 #
 # This firmware is proprietary. Users are permitted to modify it; however,
@@ -216,21 +216,27 @@ class OBC:
 
 
     def available_function_manager(self, functions_list): # Only enables functions availabe with the present car's wiring and sensors
+        def remove_function(function):
+            try:
+                functions_list.remove(function)
+            except ValueError:
+                pass
+                
         sensors = access_setting('sensors')
         if sensors == 'V':
-            functions_list.remove(self.pressure)
-            functions_list.remove(self.oil_temperature)
+            remove_function(self.pressure)
+            remove_function(self.oil_temperature)
         if self.water_temperature in functions_list and sensors != 'CUST.1':
-            functions_list.remove(self.water_temperature)
-            functions_list.remove(self.exhaust_temperature)
+            remove_function(self.water_temperature)
+            remove_function(self.exhaust_temperature)
         if self.out_temperature in functions_list:
             if access_setting('outdoor_sensor') == "NONE":
-                functions_list.remove(self.out_temperature)
+                remove_function(self.out_temperature)
         if self.wiring != 'OBC13':
             fuel_related_functions = [self.fuel_range, self.remaining_fuel, self.hourly_fuel_cons, self.mpg]
             for function in fuel_related_functions:
                 if function in functions_list:
-                    functions_list.remove(function)
+                    remove_function(function)
         return functions_list
 
     def stalk_handler(self, button_id, long_press):

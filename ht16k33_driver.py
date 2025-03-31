@@ -143,7 +143,10 @@ class HT16K33:
 
     def _write_cmd(self, byte):
         self._temp[0] = byte
-        self.i2c.writeto(self.address, self._temp)
+        try:
+            self.i2c.writeto(self.address, self._temp)
+        except OSError:
+            pass
 
     def blink_rate(self, rate=None):
         if rate is None:
@@ -152,7 +155,7 @@ class HT16K33:
         if rate != self._blink_rate:
             self._blink_rate = rate
             self._write_cmd(_HT16K33_BLINK_CMD |
-                            _HT16K33_BLINK_DISPLAYON | rate << 1)
+                            _HT16K33_BLINK_DISPLAYON | rate << 1) 
             
     def brightness(self, brightness=None):
         if brightness is None:
@@ -165,7 +168,10 @@ class HT16K33:
         logging.info(f"> Brightness set to {brightness}")
         
     def show(self):
-        self.i2c.writeto_mem(self.address, 0x00, self.buffer)
+        try:
+            self.i2c.writeto_mem(self.address, 0x00, self.buffer)
+        except OSError:
+            pass
 
   
     def clear(self):
