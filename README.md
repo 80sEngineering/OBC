@@ -1,4 +1,4 @@
-# 80s Engineering - Open Source OBC v2.0
+# 80s Engineering - OBC v2.0 Firmware
 
 This repository contains the open source firmware for **80s Engineering's On-Board Computer (OBC) v2.0**, which is a modern take on the original on-board computer found in premium BMWs
 of the late 80s. 
