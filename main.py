@@ -16,8 +16,9 @@
 # OUT OF OR IN CONNECTION WITH THE FIRMWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 # -----------------------------------------------------------------------------
-
-import time
+from machine import freq
+freq(200000000)                      #Overclocking!
+import time                          #
 import ht16k33_driver                # Display's driver
 from GPS_parser import GPS_handler   #
 from button import Button            #
@@ -26,7 +27,7 @@ from mcp3208 import MCP3208          # Analog to digital converter
 from dictionnary import Dictionnary  # Used for translations
 from unit import Unit                # Handles metric to imperial conversions
 from temperature import Temperature  # Handles temperature measurements
-from machine import UART, I2C, Pin, RTC, WDT, SPI, ADC, Timer, freq
+from machine import UART, I2C, Pin, RTC, WDT, SPI, ADC, Timer
 from timer import Timer_, LapTimer   #
 import ujson as json                 #
 from memory import access_setting    #
@@ -43,7 +44,6 @@ from rp2 import StateMachine         # StateMachine allow for PIO support, used 
 
 class OBC:
     def __init__(self):
-        freq(125000000) #Overclocking!
         self.pwr_pin = Pin(0, Pin.OUT) # Used to latch power on/off
         self.pwr_pin.high()
         self.accy = Pin(28, Pin.IN)
@@ -63,7 +63,6 @@ class OBC:
 
 
         self.display.brightness(access_setting('display_brightness'))
-
         #self.buttonX = Button(pin_number, button_id, function)
         self.button1 = Button(4, 1, self.function_manager)
         self.button2 = Button(5, 2, self.function_manager)
@@ -83,9 +82,10 @@ class OBC:
         self.digit_pressed = 0
 
 
-        # Refresh_rate_adjuster is used to lower the refresh rate of certain displayed values,
-        # by averaging temporary data
-        self.refresh_rate_adjuster = {'samples':0,'sum':0,'last_value':None}
+        # The adjusters are used to lower the refresh rate of certain displayed values,
+        # by averaging temporary data. 
+        self.averaging_adjuster = {'samples':0,'sum':0,'last_value':None}
+        self.moving_average_adjuster = { 'last_value': None, 'smoothing': 0.01}  # Between 0 (very smooth) and 1 (no smoothing)
 
         # The OBC has a dedicated always running DS3231 RTC,
         # which is used to set the RPi's internal RTC
@@ -232,7 +232,7 @@ class OBC:
         if self.out_temperature in functions_list:
             if access_setting('outdoor_sensor') == "NONE":
                 remove_function(self.out_temperature)
-        if self.wiring != 'OBC13':
+        if self.wiring not in ['OBC13', 'TRANS.']:
             fuel_related_functions = [self.fuel_range, self.remaining_fuel, self.hourly_fuel_cons, self.mpg]
             for function in fuel_related_functions:
                 if function in functions_list:
@@ -279,16 +279,25 @@ class OBC:
 
 
             elif button_id == 3:
-                self.displayed_function = self.acceleration
+                if self.wiring == "TRANS.":
+                    if self.displayed_function == self.acceleration:
+                        self.displayed_function = self.lap_timer
+                    else:
+                        self.displayed_function = self.acceleration
+                else:
+                    self.displayed_function = self.acceleration
 
 
             elif button_id == 4:
-                self.displayed_function = self.lap_timer
+                if self.wiring == "TRANS.":
+                    self.displayed_function = self.set_transmission
+                else:
+                    self.displayed_function = self.lap_timer
 
 
             elif button_id == 5:
-                self.refresh_rate_adjuster = {'samples': 0, 'sum': 0, 'last_value': None}
-                if self.wiring == "OBC13":
+                self.averaging_adjuster = {'samples': 0, 'sum': 0, 'last_value': None}
+                if self.wiring in ["OBC13", "TRANS."]:
                     fuel_related_functions = [self.hourly_fuel_cons, self.mpg, self.fuel_range, self.remaining_fuel, self.odometer]
                     if not self.displayed_function in fuel_related_functions or self.displayed_function == self.odometer:
                         self.displayed_function = self.hourly_fuel_cons
@@ -320,7 +329,7 @@ class OBC:
 
 
             elif button_id == 7:
-                self.refresh_rate_adjuster = {'samples': 0, 'sum': 0, 'last_value': None}
+                self.averaging_adjuster = {'samples': 0, 'sum': 0, 'last_value': None}
                 # Depends of which sensors and wiring are equipped
                 sensors = access_setting('sensors') #V / V+OIL
                 supported_gauges = [self.pressure, self.oil_temperature, self.water_temperature, self.exhaust_temperature, self.voltage]
@@ -340,7 +349,7 @@ class OBC:
 
 
             elif button_id == 8:
-                self.refresh_rate_adjuster = {'samples': 0, 'sum': 0, 'last_value': None}
+                self.averaging_adjuster = {'samples': 0, 'sum': 0, 'last_value': None}
                 supported_infos = [self.out_temperature, self.heading, self.altitude, self.g_sensor]
                 available_infos = self.available_function_manager(supported_infos)
                 if not self.displayed_function in available_infos or self.displayed_function == self.g_sensor:
@@ -452,7 +461,9 @@ class OBC:
                 self.display.blink_rate(0)
                 self.can_switch_function = True
 
-
+            elif self.displayed_function in [self.hourly_fuel_cons, self.mpg, self.fuel_range]:
+                self.moving_average_adjuster['last_value'] = self.get_hourly_fuel_cons(averaged = False)
+                
             elif self.displayed_function == self.odometer:
                 self.display.blink_rate(0)
                 self.displayed_function = self.set_odometer_thousands
@@ -758,7 +769,7 @@ class OBC:
 
 
     def lap_timer(self):
-        if self.show_function_name(self.button4):
+        if self.wiring != "TRANS." and self.show_function_name(self.button4) or self.wiring == "TRANS." and self.show_function_name(self.button3):
             self.show(self.words['LAP'])
         else:
             if self.gps.has_fix():
@@ -813,7 +824,13 @@ class OBC:
                     self.show(str(timer_str))
             else:
                 self.show(self.words['SIGNAL'])
-
+    
+    def set_transmission(self):
+        if self.show_function_name(self.button4):
+            self.show("TRANS.")
+        
+        #DO ZF8 TRANMSISSION RELATED STUFF HERE
+        
     def pulseIrqHandler(self,sm):
         self.new_sample = True
 
@@ -849,26 +866,28 @@ class OBC:
                 hourly_fuel_cons = (fuel_per_second_cc * 3600) / 1000
             elif self.unit.system == "IMPERI.": #GAL
                 hourly_fuel_cons = (fuel_per_second_cc * 3600) / 3785.41
-            
-            if not averaged:
-                return hourly_fuel_cons
-            else:
-                self.refresh_rate_adjuster['sum'] += hourly_fuel_cons
-                self.refresh_rate_adjuster['samples']+=1
-                if self.refresh_rate_adjuster['samples'] > 100:
-                    averaged_fuel_per_hour = self.refresh_rate_adjuster['sum']/ self.refresh_rate_adjuster['samples']
-                    self.refresh_rate_adjuster = {'samples': 0, 'sum': 0, 'last_value': averaged_fuel_per_hour}
-                else:
-                    averaged_fuel_per_hour = self.refresh_rate_adjuster.get('last_value')
-                if averaged_fuel_per_hour is None:
-                    if hourly_fuel_cons is not None:
-                        return hourly_fuel_cons
-                    else:
-                        return 0
-                return averaged_fuel_per_hour
         else:
-            return 0
+            hourly_fuel_cons = 0
         
+        if not averaged:
+            return hourly_fuel_cons
+        else:
+            last_value = self.moving_average_adjuster.get('last_value')
+            if not (0 <= hourly_fuel_cons < 50):  # Limit to 0–50 L/h or GPH
+                if last_value is None:
+                    return 0
+                else:
+                    return last_value
+            alpha = self.moving_average_adjuster.get('smoothing', 0.1)
+            if last_value is None:
+                value = hourly_fuel_cons
+            else:
+                value = alpha * hourly_fuel_cons + (1 - alpha) * last_value
+                
+            self.moving_average_adjuster['last_value'] = value
+            return value
+
+            
     def hourly_fuel_cons(self):
         if self.show_function_name(self.button5):
             if self.unit.system == "METRIC":
@@ -952,13 +971,13 @@ class OBC:
             self.show(self.words['FUEL'])
         else:
             remaining_fuel = self.get_remaining_fuel()
-            self.refresh_rate_adjuster['sum'] += remaining_fuel
-            self.refresh_rate_adjuster['samples'] += 1
-            if self.refresh_rate_adjuster['samples'] >= 100:
-                averaged_remaining_fuel =  self.refresh_rate_adjuster['sum']/ self.refresh_rate_adjuster['samples']
-                self.refresh_rate_adjuster = {'samples': 0, 'sum': 0, 'last_value': averaged_remaining_fuel}
+            self.averaging_adjuster['sum'] += remaining_fuel
+            self.averaging_adjuster['samples'] += 1
+            if self.averaging_adjuster['samples'] >= 100:
+                averaged_remaining_fuel =  self.averaging_adjuster['sum']/ self.averaging_adjuster['samples']
+                self.averaging_adjuster = {'samples': 0, 'sum': 0, 'last_value': averaged_remaining_fuel}
             else:
-                averaged_remaining_fuel = self.refresh_rate_adjuster.get('last_value')
+                averaged_remaining_fuel = self.averaging_adjuster.get('last_value')
             if averaged_remaining_fuel is not None:
                 if self.unit.system == "IMPERI.":
                     averaged_remaining_fuel = averaged_remaining_fuel / 3.78541
@@ -1010,7 +1029,7 @@ class OBC:
         odometer_str =  self.display.zeros_before_number(str(odometer_value))
         displayed_value = odometer_str
         while self.displayed_function == self.set_odometer_thousands:
-            odometer_value = access_setting('odometer')
+            odometer_value = int(access_setting('odometer'))
             if self.unit.system == "IMPERI.":
                 odometer_value = int(0.621371*odometer_value)
             odometer_str = self.display.zeros_before_number(str(odometer_value))
@@ -1029,7 +1048,7 @@ class OBC:
         odometer_str =  self.display.zeros_before_number(str(odometer_value))
         displayed_value = odometer_str
         while self.displayed_function == self.set_odometer_hundreds:
-            odometer_value = access_setting('odometer')
+            odometer_value = int(access_setting('odometer'))
             if self.unit.system == "IMPERI.":
                 odometer_value = int(0.621371*odometer_value)
             odometer_str = self.display.zeros_before_number(str(odometer_value))
@@ -1074,13 +1093,13 @@ class OBC:
             self.show(self.words['OIL'])
         else:
             current_pressure = self.get_pressure()
-            self.refresh_rate_adjuster['sum'] += current_pressure
-            self.refresh_rate_adjuster['samples'] += 1
-            if self.refresh_rate_adjuster['samples'] >= 20:
-                averaged_pressure = self.refresh_rate_adjuster['sum'] / self.refresh_rate_adjuster['samples']
-                self.refresh_rate_adjuster = {'samples': 0, 'sum': 0, 'last_value': averaged_pressure}
+            self.averaging_adjuster['sum'] += current_pressure
+            self.averaging_adjuster['samples'] += 1
+            if self.averaging_adjuster['samples'] >= 20:
+                averaged_pressure = self.averaging_adjuster['sum'] / self.averaging_adjuster['samples']
+                self.averaging_adjuster = {'samples': 0, 'sum': 0, 'last_value': averaged_pressure}
             else:
-                averaged_pressure = self.refresh_rate_adjuster.get('last_value')
+                averaged_pressure = self.averaging_adjuster.get('last_value')
                 if averaged_pressure is None:
                     averaged_pressure = current_pressure
             self.show("{:<4.1f}".format(averaged_pressure) + self.unit.pressure_acronym)
@@ -1190,13 +1209,13 @@ class OBC:
             self.show(self.words['VOLT'])
         else:
             current_voltage = self.get_voltage()
-            self.refresh_rate_adjuster['sum']+= current_voltage
-            self.refresh_rate_adjuster['samples']+=1
-            if self.refresh_rate_adjuster['samples'] > 50:
-                averaged_voltage = self.refresh_rate_adjuster['sum']/self.refresh_rate_adjuster['samples']
-                self.refresh_rate_adjuster = {'samples':0,'sum':0,'last_value':averaged_voltage}                
+            self.averaging_adjuster['sum']+= current_voltage
+            self.averaging_adjuster['samples']+=1
+            if self.averaging_adjuster['samples'] > 50:
+                averaged_voltage = self.averaging_adjuster['sum']/self.averaging_adjuster['samples']
+                self.averaging_adjuster = {'samples':0,'sum':0,'last_value':averaged_voltage}                
             else:
-                averaged_voltage = self.refresh_rate_adjuster.get('last_value')
+                averaged_voltage = self.averaging_adjuster.get('last_value')
                 if averaged_voltage is None:
                     averaged_voltage = current_voltage
             self.show("{:<6.1f}V".format(averaged_voltage))
@@ -1246,13 +1265,13 @@ class OBC:
             g_error = access_setting('g_error')
             acceleration = self.mpu.accel
             g_vector = ((acceleration.x + (g_error[0]/10)) ** 2 + (acceleration.z + (g_error[1]/10)) **2) ** 0.5
-            self.refresh_rate_adjuster['sum'] += g_vector
-            self.refresh_rate_adjuster['samples'] += 1
-            if self.refresh_rate_adjuster['samples'] > 50:
-                averaged_g = self.refresh_rate_adjuster['sum']/self.refresh_rate_adjuster['samples']
-                self.refresh_rate_adjuster = {'samples':0,'sum':0,'last_value':averaged_g}
+            self.averaging_adjuster['sum'] += g_vector
+            self.averaging_adjuster['samples'] += 1
+            if self.averaging_adjuster['samples'] > 50:
+                averaged_g = self.averaging_adjuster['sum']/self.averaging_adjuster['samples']
+                self.averaging_adjuster = {'samples':0,'sum':0,'last_value':averaged_g}
             else:
-                averaged_g = self.refresh_rate_adjuster.get('last_value')
+                averaged_g = self.averaging_adjuster.get('last_value')
                 if averaged_g is None:
                     averaged_g = g_vector
             self.show("{:<6.1f}G".format(averaged_g))
@@ -1437,14 +1456,14 @@ class OBC:
             self.show('WIRING')
         else:
             wiring = access_setting('wiring')
-            wiring_list = ['CLOCK','OBC6','OBC13']
+            wiring_list = ['CLOCK','OBC6','OBC13','TRANS.']
             self.show(str(wiring))
             if self.digit_pressed in [1,-1]:
                 try:
                     index = wiring_list.index(str(wiring))
                 except ValueError:
                     index = 0
-                index = (index + self.digit_pressed) % 3
+                index = (index + self.digit_pressed) % len(wiring_list)
                 wiring = wiring_list[index]
                 access_setting('wiring', wiring) #TODO: Add safety in case CLOCK changes wiring.
                 self.digit_pressed = 0
@@ -1582,7 +1601,7 @@ class OBC:
                     gc.collect() # freeing memory space
                     self.check_for_last_use()
                     self.check_for_overheat()
-                    if self.wiring in ['OBC6','OBC13'] and self.power_on_trigger == 'Ignition':
+                    if self.wiring in ['OBC6','OBC13', 'TRANS.'] and self.power_on_trigger == 'Ignition':
                         if not self.get_ignition_status():
                             self.power_handler()
                     if self.speed_limit_is_active:
