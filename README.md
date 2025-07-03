@@ -9,7 +9,9 @@ It replicates most of the original functions and adds performance-oriented featu
 
 The firmware is written in **MicroPython** and runs on a **Raspberry Pi Pico W**. 
 
-This project is also a great base for **custom applications**, as the device offers multiple accessible **Input/Output Digital/Analog pins** for sensors, switches, or other hardware extensions.
+This **OBC v2.0** is also a great base for **custom applications**, as the device offers multiple accessible **Input/Output Digital/Analog pins** for sensors, switches, or other hardware extensions.
+For example, could be used as a controller for any **standalone ECU / TCU**, or as a **gauge for any sensor**. 
+
 
 It's mainly for this matter that this firmware is open-sourced.
 
