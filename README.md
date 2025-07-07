@@ -1,4 +1,4 @@
-# 80s Engineering - Open Source OBC v2.0
+# 80s Engineering - OBC v2.0 firmware
 
 This repository contains the open source firmware for **80s Engineering's On-Board Computer (OBC) v2.0**, which is a modern take on the original on-board computer found in premium BMWs
 of the late 80s. 
@@ -59,6 +59,7 @@ Below is a list and description of accessible pins on the top of the OBC v2.0
 | `timer.py`   |Timer and laptimer handler|
 | `unit.py`   |Handles the mess of imperial units|
 | `vector3d.py`   |Dependency for the imu driver. Probably useless|
+|`version.json`   |Stores the current installed firmware's version|
 ---
 
 Some files contains derivatives of libraries found online.
