@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# 80s Engineering On-board Computer Firmware v1 - 31/03/2025
+# 80s Engineering On-board Computer Firmware v4 - 03/07/2025
 # Copyright (C) 2025 80s Engineering. All rights reserved.
 #
 # This firmware is proprietary. Users are permitted to modify it; however,
@@ -1044,7 +1044,7 @@ class OBC:
         now = time.ticks_ms()
         odometer_value = int(access_setting('odometer'))
         if self.unit.system == "IMPERI.":
-            odometer_value = 0.621371*odometer_value 
+            odometer_value = int(0.621371*odometer_value)
         odometer_str =  self.display.zeros_before_number(str(odometer_value))
         displayed_value = odometer_str
         while self.displayed_function == self.set_odometer_hundreds:
