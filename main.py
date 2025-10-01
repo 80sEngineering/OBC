@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# 80s Engineering On-board Computer Firmware v4 - 03/07/2025
+# 80s Engineering On-board Computer Firmware v5 - 01/10/2025
 # Copyright (C) 2025 80s Engineering. All rights reserved.
 #
 # This firmware is proprietary. Users are permitted to modify it; however,
@@ -17,7 +17,6 @@
 # THE SOFTWARE.
 # -----------------------------------------------------------------------------
 from machine import freq
-freq(200000000)                      #Overclocking!
 import time                          #
 import ht16k33_driver                # Display's driver
 from GPS_parser import GPS_handler   #
@@ -46,21 +45,23 @@ class OBC:
     def __init__(self):
         self.pwr_pin = Pin(0, Pin.OUT) # Used to latch power on/off
         self.pwr_pin.high()
-        self.accy = Pin(28, Pin.IN)
-        self.powered = True
+        self.accy = Pin(28, Pin.IN, Pin.PULL_DOWN)
+        self.power_on_trigger = 'Ignition'
+        self.wiring = access_setting("wiring")
+        self.accy.irq(handler = self.get_ignition_status, trigger =  Pin.IRQ_RISING | Pin.IRQ_FALLING)
+        self.powered = False
         self.led = Pin("LED", Pin.OUT) #RPi's internal LED
         self.led.high()
         self.init_communication() # Initiates I2C and SPI communication to RTC, display, MPU and ADC
 
-        if self.get_ignition_status():
-            self.power_on_trigger = 'Ignition'
-        else:
+        if not self.get_ignition_status():
             self.power_on_trigger = 'SET_press'
             self.display.fill()
             self.display.show()
             while Pin(12, Pin.IN, Pin.PULL_DOWN).value(): #Prevents unwanted SET press when powering-on
                 pass
-
+        
+        self.powered = True
 
         self.display.brightness(access_setting('display_brightness'))
         #self.buttonX = Button(pin_number, button_id, function)
@@ -85,7 +86,6 @@ class OBC:
         # The adjusters are used to lower the refresh rate of certain displayed values,
         # by averaging temporary data. 
         self.averaging_adjuster = {'samples':0,'sum':0,'last_value':None}
-        self.moving_average_adjuster = { 'last_value': None, 'smoothing': 0.01}  # Between 0 (very smooth) and 1 (no smoothing)
 
         # The OBC has a dedicated always running DS3231 RTC,
         # which is used to set the RPi's internal RTC
@@ -109,14 +109,13 @@ class OBC:
         language = access_setting("language")
         self.words = Dictionnary(language).words
         unit = access_setting("unit")
-        self.unit = Unit(unit)
-        self.wiring = access_setting("wiring")
+        self.unit = Unit(unit) 
 
         self.cabin_light = Pin(22, Pin.IN, Pin.PULL_DOWN)
         self.cabin_light.irq(handler = self.cabin_light_handler, trigger = Pin.IRQ_RISING | Pin.IRQ_FALLING)
         
         #Fuel related inits
-        self.injector_pulse = Pin(27, Pin.IN)
+        self.injector_pulse = Pin(27, Pin.IN, Pin.PULL_DOWN)
         self.injector_cc = access_setting("inj_cc")
         self.cyl_nb = access_setting("cyl_nb")
         self.inj_cal = access_setting("inj_cal")
@@ -124,27 +123,23 @@ class OBC:
         self.sm1 = StateMachine(1, injector_pulse_analyzer.period, in_base=self.injector_pulse, jmp_pin=self.injector_pulse)
         self.new_sample = False
         self.last_pulse = time.ticks_us()
-        self.pulseTimeout = Timer(mode=Timer.PERIODIC, period=1000, callback=self.pulseTimeoutHandler)
         self.sm0.irq(self.pulseIrqHandler)
-        # The statemachine enters an infinite loop if the engine is stopped,
-        # so we use an interrupt system with a Timer to check if injector pulse is detected
         self.sm0.active(1)
         self.sm1.active(1)
+        self.consumed_fuel = 0
         
         self.setting_index = 0 # Used in the setting menu, accessed by simultaneously pressing 1000 and 10.
 
         self.displayed_function = self.hour # self.displayed_function is what the infinite loop is contineously running
         self.last_displayed_function = None
-
-        self.last_use = time.ticks_ms() # Used for auto-off
         self.can_switch_function = True
-
-        # Used to periodically schedule tasks in order to optimize ressources
-        self.priority_counter = 0
-        self.priority_interval = [1,20,40]
+        
         self.auto_off_delay = access_setting('auto_off_delay')
         self.auto_off_delay = self.auto_off_delay * 60 * 60 * 1000
-        logging.info('> System initialized!')
+        self.auto_off_timer = Timer()
+        self.auto_off_timer.init(mode = Timer.ONE_SHOT,
+                                 period = self.auto_off_delay,
+                                 callback = self.auto_off_handler)
 
         self.loop()
 
@@ -180,6 +175,7 @@ class OBC:
             if not self.get_ignition_status() or trigger == "SET_press":
                 logging.debug("> System powered off")
                 self.uart.deinit()
+                self.gps.save_odometer()
                 self.pwr_pin = Pin(0, Pin.OUT)
                 self.display.clear()
                 self.display.blink_rate(0)
@@ -191,11 +187,15 @@ class OBC:
                 self.display.blink_rate(0)
                 self.powered = True
 
-
-    def check_for_last_use(self):
-        if time.ticks_diff(time.ticks_ms(),self.last_use) > self.auto_off_delay:
-            logging.debug(f"> No activity for {self.auto_off_delay}ms")
-            self.power_handler()
+    def restart_auto_off_timer(self):
+        self.auto_off_timer.deinit()
+        self.auto_off_timer.init(mode = Timer.ONE_SHOT,
+                                 period = self.auto_off_delay,
+                                 callback = self.auto_off_handler)
+        
+    def auto_off_handler(self, timer = None):
+        logging.debug(f"> No activity for {self.auto_off_delay}ms")
+        self.power_handler()
 
     def cabin_light_handler(self, pin = None):
         display_brightness = access_setting('display_brightness')
@@ -203,15 +203,19 @@ class OBC:
             if display_brightness > 5:
                 self.display.brightness(display_brightness - 5)
             else:
-                self.dispay.brightness(0)
+                self.display.brightness(0)
             return True
         else:
             self.display.brightness(display_brightness)
             return False
 
 
-    def get_ignition_status(self): #TODO: TROUBLESHOOTING: IRQ based ignition management will be done with upcoming PCB
-        return self.accy.value()
+    def get_ignition_status(self, pin = None):
+        value = self.accy.value()
+        if self.powered and self.wiring in ['OBC6','OBC13', 'TRANS.'] and self.power_on_trigger == 'Ignition':
+                    if not value:
+                        self.power_handler()
+        return value
 
 
 
@@ -233,20 +237,20 @@ class OBC:
             if access_setting('outdoor_sensor') == "NONE":
                 remove_function(self.out_temperature)
         if self.wiring not in ['OBC13', 'TRANS.']:
-            fuel_related_functions = [self.fuel_range, self.remaining_fuel, self.hourly_fuel_cons, self.mpg]
+            fuel_related_functions = [self.fuel_range, self.mpg]
             for function in fuel_related_functions:
                 if function in functions_list:
                     remove_function(function)
         return functions_list
 
     def stalk_handler(self, button_id, long_press):
-        self.last_use = time.ticks_ms()
+        self.restart_auto_off_timer()
         self.digit_pressed = 0
         if not self.powered: # Wakes up the OBC if stalk is pressed
             self.power_handler()
             return
-        supported_functions = [self.hour, self.date, self.speed, self.acceleration, self.lap_timer, self.hourly_fuel_cons,
-                               self.mpg, self.fuel_range, self.remaining_fuel, self.odometer, self.timer_function, self.pressure,
+        supported_functions = [self.hour, self.date, self.speed, self.acceleration, self.lap_timer,
+                               self.mpg, self.fuel_range, self.odometer, self.timer_function, self.pressure,
                                self.oil_temperature, self.water_temperature, self.exhaust_temperature, self.voltage, self.out_temperature, self.altitude, self.heading, self.g_sensor]
 
         available_functions = self.available_function_manager(supported_functions)
@@ -263,7 +267,7 @@ class OBC:
 
 
     def function_manager(self, button_id, long_press):
-        self.last_use = time.ticks_ms()
+        self.restart_auto_off_timer()
         self.digit_pressed = 0
         if not self.powered: # Wakes up the OBC if function is switched
             self.power_handler()
@@ -298,9 +302,9 @@ class OBC:
             elif button_id == 5:
                 self.averaging_adjuster = {'samples': 0, 'sum': 0, 'last_value': None}
                 if self.wiring in ["OBC13", "TRANS."]:
-                    fuel_related_functions = [self.hourly_fuel_cons, self.mpg, self.fuel_range, self.remaining_fuel, self.odometer]
+                    fuel_related_functions = [self.mpg, self.fuel_range, self.odometer]
                     if not self.displayed_function in fuel_related_functions or self.displayed_function == self.odometer:
-                        self.displayed_function = self.hourly_fuel_cons
+                        self.displayed_function = self.mpg
                     else:
                         index = fuel_related_functions.index(self.displayed_function)
                         if not long_press:
@@ -334,7 +338,8 @@ class OBC:
                 sensors = access_setting('sensors') #V / V+OIL
                 supported_gauges = [self.pressure, self.oil_temperature, self.water_temperature, self.exhaust_temperature, self.voltage]
                 available_gauges = self.available_function_manager(supported_gauges)
-
+                for sensor in [self.oil_temp_sensor, self.water_temp_sensor, self.exhaust_temp_sensor, self.out_temp_sensor]:
+                    sensor.refresh_rate_adjuster = {'samples': 0, 'sum': 0, 'last_value': None}
                 if not self.displayed_function in available_gauges or self.displayed_function == self.voltage:
                     self.displayed_function = available_gauges[0]
                 else:
@@ -370,7 +375,7 @@ class OBC:
 
 
     def digit_manager(self, button_id, long_press):
-        self.last_use = time.ticks_ms()
+        self.restart_auto_off_timer()
         if self.displayed_function in (self.set_hour, self.set_date, self.set_year, self.set_limit, self.set_odometer_thousands,
                                        self.set_odometer_hundreds, self.set_max_temperature, self.set_setting, self.set_language,
                                        self.set_clock_format, self.set_unit,self.set_wiring,self.set_display_brightness,self.set_sensors,
@@ -391,7 +396,7 @@ class OBC:
                 time.sleep_ms(2000)
 
     def set_reset(self, button_id, long_press):
-        self.last_use = time.ticks_ms()
+        self.restart_auto_off_timer()
         self.digit_pressed = 0
         setting_functions = [self.set_language, self.set_clock_format, self.set_unit,
                              self.sw_update, self.set_display_brightness, self.set_sensors,
@@ -461,10 +466,13 @@ class OBC:
                 self.display.blink_rate(0)
                 self.can_switch_function = True
 
-            elif self.displayed_function in [self.hourly_fuel_cons, self.mpg, self.fuel_range]:
-                self.moving_average_adjuster['last_value'] = self.get_hourly_fuel_cons(averaged = False)
+            elif self.displayed_function in [self.mpg, self.fuel_range]:
+                self.gps.save_odometer()
+                self.consumed_fuel = 0
                 
             elif self.displayed_function == self.odometer:
+                self.gps.save_odometer()
+                self.consumed_fuel = 0
                 self.display.blink_rate(0)
                 self.displayed_function = self.set_odometer_thousands
                 self.can_switch_function = False
@@ -702,7 +710,7 @@ class OBC:
 
 
     def check_for_overspeed(self):
-        if not self.displayed_function == self.set_limit and self.can_switch_function:
+        if self.speed_limit_is_active and not self.displayed_function == self.set_limit and self.can_switch_function:
             if self.gps.has_fix():
                 current_speed = self.gps.parsed.speed[self.unit.speed_index]
                 gone_overspeed = False
@@ -834,14 +842,10 @@ class OBC:
     def pulseIrqHandler(self,sm):
         self.new_sample = True
 
-    def pulseTimeoutHandler(self, timer):
-        if time.ticks_diff(time.ticks_us(), self.last_pulse) > 1000000 and self.displayed_function in [self.hourly_fuel_cons,self.mpg]:
-            self.new_sample = False
-
     def pulse_analyzer(self):
         def scale(v):
             return (1 + (v ^ 0xffffffff)) * 24e-6  # Scale to ms
-        time.sleep_ms(150) #timeout
+        time.sleep_ms(60)
         if self.new_sample:
             pulse_width = scale(self.sm0.get())
             self.new_sample = False
@@ -851,150 +855,115 @@ class OBC:
         else:
             return False
 
-    def get_hourly_fuel_cons(self, metric = False, averaged = True):
+    def get_consumed_fuel(self, metric = False, averaged = True):
         analyzed_pulse = self.pulse_analyzer()
-        if analyzed_pulse:
+        if analyzed_pulse: #and self.gps.previous_place['time'] != 0: #Makes sure consumed_fuel doens't increment without SIGNAL
             pulse_width = analyzed_pulse[0]
             period = analyzed_pulse[1]
-            rpm = (1/(period/1000))* 60
-            cc_per_ms = self.injector_cc / 60_000
-            cc_per_pulse = pulse_width * cc_per_ms
-            cc_per_rot = 2 * cc_per_pulse * self.cyl_nb
-            rotations_per_second = 1 / (period / 1000)
-            fuel_per_second_cc = (self.inj_cal / 100) * cc_per_rot * rotations_per_second
-            if self.unit.system == "METRIC" or metric: #L
-                hourly_fuel_cons = (fuel_per_second_cc * 3600) / 1000
-            elif self.unit.system == "IMPERI.": #GAL
-                hourly_fuel_cons = (fuel_per_second_cc * 3600) / 3785.41
-        else:
-            hourly_fuel_cons = 0
-        
-        if not averaged:
-            return hourly_fuel_cons
-        else:
-            last_value = self.moving_average_adjuster.get('last_value')
-            if not (0 <= hourly_fuel_cons < 50):  # Limit to 0–50 L/h or GPH
-                if last_value is None:
-                    return 0
-                else:
-                    return last_value
-            alpha = self.moving_average_adjuster.get('smoothing', 0.1)
-            if last_value is None:
-                value = hourly_fuel_cons
-            else:
-                value = alpha * hourly_fuel_cons + (1 - alpha) * last_value
-                
-            self.moving_average_adjuster['last_value'] = value
-            return value
-
-            
-    def hourly_fuel_cons(self):
-        if self.show_function_name(self.button5):
-            if self.unit.system == "METRIC":
-                self.show('L/H ')
-            else:
-                self.show('GPH')
-            self.last_pulse = time.ticks_us()
-        else:
-            averaged_fuel_per_hour = self.get_hourly_fuel_cons()
-            if self.unit.system == 'METRIC':
-                self.show("{:<3.1f}L/H".format(averaged_fuel_per_hour))
-            else:
-                self.show("{:<3.1f}GPH".format(averaged_fuel_per_hour))
-
-
+            rpm = (1/period) * 60000
+            cc_per_s = (pulse_width/period) * (self.injector_cc / 60) * (self.inj_cal / 100) * self.cyl_nb
+            if cc_per_s < 5 * self.cyl_nb:
+                dt = time.ticks_diff(time.ticks_us(), self.last_pulse)
+                add_fuel = cc_per_s * (dt / 1_000_000)
+                self.consumed_fuel += add_fuel
+                        
     def mpg(self):
         if self.show_function_name(self.button5):
             if self.unit.system == "METRIC":
                 self.show('L/100 ')
             else:
                 self.show('MPG')
-            self.last_pulse = time.ticks_us()
         else:
-            if self.gps.has_fix():
-                fuel_per_hour_liters = self.get_hourly_fuel_cons(metric = True)
-                speed_kmh = self.gps.parsed.speed[2]
-                if speed_kmh > 5:
-                    fuel_per_100km = (fuel_per_hour_liters / speed_kmh) * 100
-                else:
-                    fuel_per_100km = 999
-
+            consumption_units = {"METRIC": "L10.", "IMPERI." : "MPG", "UK" : "MPG"}
+            if self.gps.trip > 0 and self.consumed_fuel > 0:
                 if self.unit.system == "METRIC":
-                    self.show("{:<3.1f}L/1.".format(fuel_per_100km))
+                    consumption = (self.consumed_fuel / self.gps.trip) * 100
                 else:
-                    if fuel_per_100km > 0:
-                        mpg = 235.215 / fuel_per_100km
-                        if mpg < 1:
-                            mpg = 0
-                    else:
-                        mpg = 99
-                    self.show("{:<3.1f}MPG".format(mpg))
+                    miles = self.gps.trip * 0.621371
+                    gallon_value = {"IMPERI." : 3.785, "UK" : 4.546}
+                    gallons = self.consumed_fuel / gallon_value[self.unit.system]
+                    consumption = miles / gallons if gallons > 0 else 0
+                consumption = max(0, min(consumption, 99))
+                self.show("{:<4.1f}".format(consumption) + consumption_units[self.unit.system])
             else:
-                self.show("SIGNAL")
-
-
+                self.show("   " + consumption_units[self.unit.system])
+            
     def fuel_range(self):
+        def display_blank_range():
+            if self.unit.system == "METRIC":
+                self.show("    KM")
+            else:
+                self.show("    MI")
+                
         if self.show_function_name(self.button5):
             self.show(self.words['RANGE'])
         else:
             remaining_fuel = self.get_remaining_fuel()
-            fuel_per_hour_liters = self.get_hourly_fuel_cons()
-
-            if self.gps.has_fix():
-                speed_kmh = self.gps.parsed.speed[self.unit.speed_index]
-
-                if speed_kmh > 5:
-                    if fuel_per_hour_liters > 0:
-                        fuel_per_km = fuel_per_hour_liters / speed_kmh
-                        estimated_range_km = remaining_fuel / fuel_per_km
+            if self.gps.trip > 0 and self.consumed_fuel > 0:
+                l_per_km = self.consumed_fuel / self.gps.trip
+                inst_range_km = remaining_fuel / l_per_km
+                inst_range_km = max(0.0, min(inst_range_km, 999))
+                self.averaging_adjuster['sum']+= inst_range_km
+                self.averaging_adjuster['samples'] += 1
+                if self.averaging_adjuster['samples'] > 30:
+                    range_km = self.averaging_adjuster['sum']/self.averaging_adjuster['samples']
+                    self.averaging_adjuster = {'sum': 0, 'samples': 0, 'last_value': range_km}
+                else:
+                    if self.averaging_adjuster['last_value'] is None:
+                        display_blank_range()
+                        return
                     else:
-                        estimated_range_km = 9999
-                else:
-                    estimated_range_km = 0
+                        range_km = self.averaging_adjuster['last_value']
+                        
                 if self.unit.system == "METRIC":
-                    self.show("{:<4.0f}KM".format(estimated_range_km))
+                    self.show("{:<4.0f}KM".format(range_km))
                 else:
-                    self.show("{:<4.0f}MI".format(estimated_range_km*0.621371))
+                    range_mi = max(0.0, min(range_km*0.621371, 999))
+                    self.show("{:<4.0f}MI".format(range_mi))
+       
             else:
-                self.show('SIGNAL')
+                display_blank_range()
+                    
 
-
-    def get_remaining_fuel(self): #LITERS
-        tank_volume = access_setting('tank')
-        fuel_voltage = 3 * self.adc.read_voltage(4)
-        battery_voltage =  self.get_voltage() #TODO: correct value relative to battery voltage
-        remaining_fuel_liters = ((5 - fuel_voltage)/5) * tank_volume
-        return remaining_fuel_liters
-
-    def remaining_fuel(self):
-        if self.show_function_name(self.button5):
-            self.show(self.words['FUEL'])
-        else:
-            remaining_fuel = self.get_remaining_fuel()
-            self.averaging_adjuster['sum'] += remaining_fuel
-            self.averaging_adjuster['samples'] += 1
-            if self.averaging_adjuster['samples'] >= 100:
-                averaged_remaining_fuel =  self.averaging_adjuster['sum']/ self.averaging_adjuster['samples']
-                self.averaging_adjuster = {'samples': 0, 'sum': 0, 'last_value': averaged_remaining_fuel}
-            else:
-                averaged_remaining_fuel = self.averaging_adjuster.get('last_value')
-            if averaged_remaining_fuel is not None:
-                if self.unit.system == "IMPERI.":
-                    averaged_remaining_fuel = averaged_remaining_fuel / 3.78541
-                    fuel_to_show = "{:<3.0f}GAL".format(averaged_remaining_fuel)
-                else:
-                    fuel_to_show = "{:<3.0f}  L".format(averaged_remaining_fuel)
-            else:
-                fuel_to_show = "   GAL" if self.unit.system == 'IMPERI.' else "     L" 
-            self.show(fuel_to_show)
-            
                 
+
+
+    def get_remaining_fuel(self):  # LITERS
+        fuel_voltage_on = 3 * self.adc.read_voltage(4)
+
+        # Convert "engine on" voltage to equivalent "engine off"
+        fuel_voltage = 0.920 * fuel_voltage_on - 0.035
+
+        # Calibration table: (volts_off, liters)
+        cal = [
+            (3.80, 5.0),
+            (3.08, 15.0),
+            (1.26, 35.0),
+            (0.46, 45.2),
+            (0.02, 55.0),
+        ]
+
+        if fuel_voltage >= cal[0][0]:
+            return cal[0][1]
+        if fuel_voltage <= cal[-1][0]:
+            return cal[-1][1]
+
+        # Linear interpolation between calibration points
+        for i in range(len(cal) - 1):
+            v_hi, l_hi = cal[i]
+            v_lo, l_lo = cal[i + 1]
+            if v_lo <= fuel_voltage <= v_hi:
+                t = (fuel_voltage - v_lo) / (v_hi - v_lo)
+                return l_lo + t * (l_hi - l_lo)
+        return cal[-1][1]
+  
+  
     def odometer(self):
         if self.show_function_name(self.button5):
             self.show(self.words['ODO'])
         else:
-            value = access_setting('odometer')
-            if self.unit.system == 'IMPERI.':
+            value = access_setting('odometer') + self.gps.trip
+            if self.unit.system in ['IMPERI.', 'UK']:
                 value = value * 0.621371
             value = round(value,1)
             if value%1!=0:
@@ -1006,7 +975,7 @@ class OBC:
     def set_odometer(self, unit):
         odometer_value = int(access_setting('odometer'))
         factor = 1
-        if self.unit.system == "IMPERI.":
+        if self.unit.system != "METRIC":
             factor = 1.60934
         if unit == 'k':
             digit_mapping = {100: 100000, 10: 10000, 1: 1000, -1: -1000, -10: -10000, -100: -100000}
@@ -1024,13 +993,13 @@ class OBC:
     def set_odometer_thousands(self):
         now = time.ticks_ms()
         odometer_value = int(access_setting('odometer'))
-        if self.unit.system == "IMPERI.":
+        if self.unit.system != "METRIC":
             odometer_value = int(0.621371*odometer_value )
         odometer_str =  self.display.zeros_before_number(str(odometer_value))
         displayed_value = odometer_str
         while self.displayed_function == self.set_odometer_thousands:
             odometer_value = int(access_setting('odometer'))
-            if self.unit.system == "IMPERI.":
+            if self.unit.system != "METRIC":
                 odometer_value = int(0.621371*odometer_value)
             odometer_str = self.display.zeros_before_number(str(odometer_value))
             thousands = "   "+odometer_str[3:]
@@ -1043,13 +1012,13 @@ class OBC:
     def set_odometer_hundreds(self):
         now = time.ticks_ms()
         odometer_value = int(access_setting('odometer'))
-        if self.unit.system == "IMPERI.":
+        if self.unit.system != "METRIC":
             odometer_value = int(0.621371*odometer_value)
         odometer_str =  self.display.zeros_before_number(str(odometer_value))
         displayed_value = odometer_str
         while self.displayed_function == self.set_odometer_hundreds:
             odometer_value = int(access_setting('odometer'))
-            if self.unit.system == "IMPERI.":
+            if self.unit.system != "METRIC":
                 odometer_value = int(0.621371*odometer_value)
             odometer_str = self.display.zeros_before_number(str(odometer_value))
             hundreds = odometer_str[:3]
@@ -1084,7 +1053,7 @@ class OBC:
         psi_pressure = int(bar_pressure * 14.5038)
         if self.unit.system == 'METRIC':
             return round(bar_pressure,1)
-        elif self.unit.system == 'IMPERI.':
+        else:
             return psi_pressure
 
 
@@ -1092,17 +1061,8 @@ class OBC:
         if self.show_function_name(self.button7):
             self.show(self.words['OIL'])
         else:
-            current_pressure = self.get_pressure()
-            self.averaging_adjuster['sum'] += current_pressure
-            self.averaging_adjuster['samples'] += 1
-            if self.averaging_adjuster['samples'] >= 20:
-                averaged_pressure = self.averaging_adjuster['sum'] / self.averaging_adjuster['samples']
-                self.averaging_adjuster = {'samples': 0, 'sum': 0, 'last_value': averaged_pressure}
-            else:
-                averaged_pressure = self.averaging_adjuster.get('last_value')
-                if averaged_pressure is None:
-                    averaged_pressure = current_pressure
-            self.show("{:<4.1f}".format(averaged_pressure) + self.unit.pressure_acronym)
+            pressure = self.get_pressure()
+            self.show("{:<4.1f}".format(pressure) + self.unit.pressure_acronym)
              
     def set_max_temperature(self):
         if self.show_function_name(self.button9):
@@ -1211,14 +1171,16 @@ class OBC:
             current_voltage = self.get_voltage()
             self.averaging_adjuster['sum']+= current_voltage
             self.averaging_adjuster['samples']+=1
-            if self.averaging_adjuster['samples'] > 50:
+            if self.averaging_adjuster['samples'] > 10:
                 averaged_voltage = self.averaging_adjuster['sum']/self.averaging_adjuster['samples']
-                self.averaging_adjuster = {'samples':0,'sum':0,'last_value':averaged_voltage}                
+                self.averaging_adjuster = {'samples':0,'sum':0,'last_value':averaged_voltage}
+                self.show("{:<6.1f}V".format(averaged_voltage))
             else:
                 averaged_voltage = self.averaging_adjuster.get('last_value')
                 if averaged_voltage is None:
-                    averaged_voltage = current_voltage
-            self.show("{:<6.1f}V".format(averaged_voltage))
+                    self.show("     V")
+                else:
+                    self.show("{:<6.1f}V".format(averaged_voltage))
  
 
 
@@ -1241,7 +1203,7 @@ class OBC:
             if self.gps.has_fix():
                 if self.unit.system == 'METRIC':
                     altitude = self.gps.parsed.altitude
-                elif self.unit.system == 'IMPERI.':
+                else:
                     altitude = self.gps.parsed.altitude * 3.28084
                 self.show(str(int(altitude)) + self.unit.altitude_acronym)
             else:
@@ -1252,7 +1214,7 @@ class OBC:
             self.show(self.words['HDG'])
         else:
             if self.gps.has_fix():
-                compass_direction = self.gps.parsed.compass_direction()
+                compass_direction = self.gps.compass_direction()
                 heading = self.gps.parsed.course
                 self.show(str(int(heading)) + compass_direction)
             else:
@@ -1267,14 +1229,15 @@ class OBC:
             g_vector = ((acceleration.x + (g_error[0]/10)) ** 2 + (acceleration.z + (g_error[1]/10)) **2) ** 0.5
             self.averaging_adjuster['sum'] += g_vector
             self.averaging_adjuster['samples'] += 1
-            if self.averaging_adjuster['samples'] > 50:
+            if self.averaging_adjuster['samples'] > 10:
                 averaged_g = self.averaging_adjuster['sum']/self.averaging_adjuster['samples']
                 self.averaging_adjuster = {'samples':0,'sum':0,'last_value':averaged_g}
             else:
                 averaged_g = self.averaging_adjuster.get('last_value')
                 if averaged_g is None:
-                    averaged_g = g_vector
-            self.show("{:<6.1f}G".format(averaged_g))
+                    self.show("     G")
+                else:
+                    self.show("{:<6.1f}G".format(averaged_g))
 
 
 # ----------------------------SETTINGS FUNCTIONS-------------------------------
@@ -1324,12 +1287,12 @@ class OBC:
             self.show('UNIT')
         else:
             unit = access_setting('unit')
-            possible_units = ['METRIC','IMPERI.']
+            possible_units = ['METRIC','IMPERI.', 'UK']
             index = possible_units.index(unit)
             digit_mapping = [1, -1]
             if self.digit_pressed in digit_mapping:
                 index+=self.digit_pressed
-                if index >= 2 or index < 0:
+                if index >= 3 or index < 0:
                     index = 0
                 access_setting('unit', possible_units[index])
                 self.unit.system = possible_units[index]
@@ -1590,28 +1553,14 @@ class OBC:
 # -------------------------------INFINITE-LOOP---------------------------------
 
     def loop(self):
-        while True:
-
+        while True: 
             if self.powered:
+                self.led.toggle()
                 self.displayed_function()
-                if self.priority_counter == self.priority_interval[1] or  self.priority_counter == self.priority_interval[2]: #1/20 occurence
-                    self.gps.get_GPS_data() #computing travelled distance
-                    self.led.toggle()
-                if self.priority_counter == self.priority_interval[2]: #1/40 occurence
-                    gc.collect() # freeing memory space
-                    self.check_for_last_use()
-                    self.check_for_overheat()
-                    if self.wiring in ['OBC6','OBC13', 'TRANS.'] and self.power_on_trigger == 'Ignition':
-                        if not self.get_ignition_status():
-                            self.power_handler()
-                    if self.speed_limit_is_active:
-                        self.check_for_overspeed()
-                    
-                        
-                    self.priority_counter = 0
-                self.priority_counter += 1
-            else:
-                pass
-
-
+                self.gps.get_GPS_data() #computing travelled distance
+                if self.wiring in ["OBC13", "TRANS."]:
+                    self.get_consumed_fuel()
+                self.check_for_overheat()
+                self.check_for_overspeed()
+                gc.collect() # freeing memory space
 OBC()

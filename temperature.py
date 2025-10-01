@@ -9,11 +9,12 @@ class Temperature:
         self.limit_is_active = False
 
     def formatted_temperature(self, temperature, acronym):
-        if temperature is None:
-            return str('   '+acronym)
-        if temperature < -50:  # -50C ~= -50F
-            return 'NODATA'
-        temperature_str = "{:<5.0f}{}".format(temperature, acronym)
+        if temperature is not None:
+            if temperature < -50:  # -50C ~= -50F
+                return 'NODATA'
+            temperature_str = "{:<5.0f}{}".format(temperature, acronym)
+        else:
+            temperature_str = "{:>6}".format(acronym)
         return temperature_str
 
     def get_temperature(self, acronym, formatted=False):
@@ -85,13 +86,11 @@ class Temperature:
         self.refresh_rate_adjuster['sum'] += current_temperature
         self.refresh_rate_adjuster['samples'] += 1
         
-        if self.refresh_rate_adjuster['samples'] >= 150:  # Adjust sample count for slower refresh
+        if self.refresh_rate_adjuster['samples'] >= 10:  # Adjust sample count for slower refresh
             averaged_temperature = self.refresh_rate_adjuster['sum'] / self.refresh_rate_adjuster['samples']
             self.refresh_rate_adjuster = {'samples': 0, 'sum': 0, 'last_value': averaged_temperature}
         else:
             averaged_temperature = self.refresh_rate_adjuster.get('last_value')
-            if averaged_temperature is None:
-                averaged_temperature = current_temperature
         return self.formatted_temperature(averaged_temperature, acronym) if formatted else averaged_temperature
 
 

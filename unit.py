@@ -26,37 +26,37 @@ class Unit:
                 self.speed_acronym = 'KPH'
             else:
                 self.speed_acronym = 'KMH'
-        elif self.system == 'IMPERI.':
+        else:
             self.speed_acronym = 'MPH'
             
                 
     def set_speed_index(self):
         if self.system == 'METRIC':
             self.speed_index = 2
-        elif self.system == 'IMPERI.':
+        else:
             self.speed_index = 1
             
     def set_pressure_acronym(self):
         if self.system == 'METRIC':
             self.pressure_acronym = 'BAR'
-        elif self.system == 'IMPERI.':
+        else:
             self.pressure_acronym = 'PSI'
             
     def set_temperature_acronym(self):
-        if self.system == 'METRIC':
+        if self.system in ['METRIC', 'UK']:
             self.temperature_acronym = 'C'
-        elif self.system == 'IMPERI.':
+        else:
             self.temperature_acronym = 'F'
             
     def set_altitude_acronym(self):
         if self.system == 'METRIC':
             self.altitude_acronym = 'M'
-        elif self.system == 'IMPERI.':
+        else:
             self.altitude_acronym = 'FT'
         
     def set_volume_acronym(self):
         if self.system == "METRIC":
             self.volume_acronym = 'L'
-        elif self.system == "IMPERIAL":
+        else:
             self.volume_acronym = "GAL"
             

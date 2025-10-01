@@ -1,1 +1,1 @@
-{"language": "EN", "g_error": [-1, -1], "auto_off_delay": 4, "sensors": "V+OIL", "inj_cal": 100, "outdoor_sensor": "FITTED", "cyl_nb": 4, "tank": 55, "clock_format": 24, "display_brightness": 15, "inj_cc": 160, "wiring": "OBC13", "odometer": 11.69734, "unit": "METRIC"}
+{"odometer": 891.433, "unit": "METRIC", "auto_off_delay": 4, "sensors": "V+OIL", "outdoor_sensor": "FITTED", "inj_cal": 100, "cyl_nb": 4, "tank": 55, "clock_format": 12, "wiring": "OBC13", "inj_cc": 160, "display_brightness": 15, "language": "EN", "g_error": [-1, -1]}
