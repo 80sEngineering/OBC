@@ -1336,8 +1336,8 @@ class OBC:
                 logging.debug("> Entering update mode.")
                 firmware_url = "https://github.com/80sEngineering/OBC/"
                 files_to_update = ["button.py", "dictionnary.py", "ds3231.py", "fota_master.py",
-                                   "GPS_parser.py","ht16k33_driver.py","imu.py","logging.py",
-                                   "main.py", "mcp3208.py", "memory.py", "timer.py", "unit.py",
+                                   "GPS_parser.py","ht16k33_driver.py","imu.py","injector_pulse_analyzer.py","logging.py",
+                                   "main.py", "mcp3208.py", "memory.py", "temperature.py", "timer.py", "unit.py",
                                    "vector3d.py","version.json","data.json"] # TODO REMOVE data
 
                 ota_updater = OTAUpdater(firmware_url, files_to_update)
